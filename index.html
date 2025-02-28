@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>完全非弹性碰撞教学演示</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; }
+        canvas { display: block; }
+        .panel { position: fixed; top: 20px; left: 20px; background: rgba(255,255,255,0.9); padding: 15px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <button onclick="reset()">重置</button>
+        <label>质量比: <input type="range" id="massRatio" min="1" max="5" value="2"></label>
+    </div>
+    <canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let width = window.innerWidth;
+let height = window.innerHeight;
+
+// 初始化画布
+function initCanvas() {
+    canvas.width = width;
+    canvas.height = height;
+}
+window.addEventListener('resize', () => {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    initCanvas();
+});
+initCanvas();
+
+// 物理参数
+const config = {
+    particleCount: 100,    // 粒子数量
+    particleSize: 4,       // 粒子尺寸
+    timeScale: 0.3         // 时间缩放
+};
+
+// 粒子系统
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 8;
+        this.vy = (Math.random() - 0.5) * 8;
+        this.life = 1.0;
+        this.color = color;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.15;     // 重力效果
+        this.vx *= 0.98;     // 空气阻力
+        this.life -= 0.015;  // 生命周期衰减
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, config.particleSize, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(${this.color},${this.life})`;
+        ctx.fill();
+    }
+}
+
+// 碰撞体
+let objects = {
+    left: { x: width*0.2, y: height/2, v: 10, m: 2, color: '255, 71, 87' },  // 加快初速度
+    right: { x: width*0.8, y: height/2, v: -10, m: 1, color: '52, 152, 219' } // 加快初速度
+};
+
+let particles = [];
+
+function generateParticles(x, y, color) {
+    for(let i = 0; i < config.particleCount; i++) {
+        particles.push(new Particle(x, y, color));
+    }
+}
+
+function detectCollision() {
+    const distance = Math.abs(objects.left.x - objects.right.x);
+    return distance < 60 && objects.left.v > objects.right.v;
+}
+
+function resolveCollision() {
+    const m1 = objects.left.m, m2 = objects.right.m;
+    const v = (m1*objects.left.v + m2*objects.right.v) / (m1 + m2);
+    
+    objects.left.v = objects.right.v = v;
+    
+    // 生成双色粒子
+    generateParticles((objects.left.x + objects.right.x)/2, height/2, objects.left.color);
+    generateParticles((objects.left.x + objects.right.x)/2, height/2, objects.right.color);
+    
+    // 输出碰撞时的初速度
+    console.log(`红色物体初速度: ${objects.left.v} m/s`);
+    console.log(`蓝色物体初速度: ${objects.right.v} m/s`);
+    console.log(`红色物体质量: ${objects.left.m} kg`);
+    console.log(`蓝色物体质量: ${objects.right.m} kg`);
+
+    // 如果你想用弹窗显示，可以启用以下代码
+    // alert(`碰撞时的初速度:\n红色物体: ${objects.left.v} m/s\n蓝色物体: ${objects.right.v} m/s`);
+}
+
+function updateObjects() {
+    objects.left.x += objects.left.v * config.timeScale;
+    objects.right.x += objects.right.v * config.timeScale;
+    
+    // 边界弹性
+    [objects.left, objects.right].forEach(obj => {
+        if(obj.x < 60 || obj.x > width-60) obj.v *= -0.9;
+    });
+}
+
+function drawObject(obj) {
+    ctx.save();
+    ctx.translate(obj.x, obj.y);
+    
+    // 运动模糊
+    ctx.filter = `blur(${Math.abs(obj.v)*0.5}px)`;
+    
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, Math.PI*2);
+    ctx.fillStyle = `rgb(${obj.color})`;
+    ctx.fill();
+    
+    // 质量标签
+    ctx.filter = 'none';
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${obj.m}kg`, 0, -40);
+    
+    ctx.restore();
+}
+
+function animate() {
+    ctx.clearRect(0, 0, width, height);
+    
+    // 更新状态
+    updateObjects();
+    particles.forEach((p, i) => {
+        p.update();
+        if(p.life <= 0) particles.splice(i, 1);
+    });
+    
+    // 碰撞处理
+    if(detectCollision()) resolveCollision();
+    
+    // 绘制元素
+    ctx.globalCompositeOperation = 'lighter'; // 启用叠加混合
+    particles.forEach(p => p.draw());
+    ctx.globalCompositeOperation = 'source-over';
+    
+    drawObject(objects.left);
+    drawObject(objects.right);
+    
+    requestAnimationFrame(animate);
+}
+
+function reset() {
+    objects.left.x = width*0.2;
+    objects.right.x = width*0.8;
+    objects.left.m = parseInt(document.getElementById('massRatio').value);
+    objects.left.v = 10;  // 恢复初始速度
+    objects.right.v = -10; // 恢复初始速度
+    particles = [];
+}
+
+// 启动
+animate();
+</script>
+</body>
+</html>
